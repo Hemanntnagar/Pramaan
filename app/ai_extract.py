@@ -69,6 +69,12 @@ async def extract_fields(file_bytes: bytes, content_type: str) -> dict:
         )
 
     if resp.status_code != 200:
+        if resp.status_code == 429:
+            raise ExtractionError(
+                "Gemini API quota exceeded — check your plan and billing at "
+                "https://ai.google.dev/gemini-api/docs/rate-limits "
+                "(or wait for the limit to reset)"
+            )
         raise ExtractionError(
             f"Gemini API request failed ({resp.status_code}): {resp.text[:300]}"
         )
