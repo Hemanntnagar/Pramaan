@@ -22,7 +22,7 @@ volumes match their paper trail. This tool:
   submission, duplicate invoice numbers *across every case ever audited*, and
   rate-per-kg outliers
 - Returns a risk score and a plain-language report
-- Optionally reads an uploaded photo/PDF of an invoice with Claude and
+- Optionally reads an uploaded photo/PDF of an invoice with Gemini and
   auto-fills the fields, so the auditor doesn't have to type everything by hand
 - Generates a downloadable PDF audit report for each stamped case
 
@@ -33,7 +33,7 @@ structurally cannot do — it's the actual point of this version.
 ## Requirements
 
 - **Python 3.10+** (the code uses modern type syntax; 3.11 or 3.12 is fine)
-- An **Anthropic API key** is optional — only needed for the "Upload invoice"
+- A **Google Gemini API key** is optional — only needed for the "Upload invoice"
   button (see [Environment variables](#environment-variables))
 
 ## Tech stack
@@ -44,7 +44,7 @@ structurally cannot do — it's the actual point of this version.
 | ASGI server | [Uvicorn](https://www.uvicorn.org/) |
 | Database | SQLite (plain `sqlite3`, no ORM) |
 | PDF reports | [ReportLab](https://www.reportlab.com/) with bundled DejaVu Sans fonts |
-| AI extraction | Anthropic Messages API via [httpx](https://www.python-httpx.org/) |
+| AI extraction | Google Gemini API via [httpx](https://www.python-httpx.org/) |
 | Frontend | Single static HTML file — no Node, no build step |
 
 ## Setup
@@ -54,7 +54,7 @@ cd pramaan-backend
 python3 -m venv venv
 source venv/bin/activate          # on Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env              # then paste your Anthropic API key into .env
+cp .env.example .env              # then paste your Gemini API key into .env
 ```
 
 ## Run
@@ -92,7 +92,7 @@ pramaan-backend/
     main.py         FastAPI app — all the HTTP routes
     db.py           SQLite read/write helpers (no ORM, plain SQL)
     verify.py       the actual rule engine — the real logic lives here
-    ai_extract.py   server-side call to Claude for reading documents
+    ai_extract.py   server-side call to Gemini for reading documents
     pdf_report.py   turns a verified case into a submittable PDF report
     fonts/          DejaVu Sans (bundled so ₹ renders correctly in PDFs)
   static/
@@ -132,10 +132,10 @@ many cases are already in the database.
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
-| `ANTHROPIC_API_KEY` | No | Enables `/api/extract` and the upload button. Get one at [console.anthropic.com](https://console.anthropic.com/). |
+| `GEMINI_API_KEY` | No | Enables `/api/extract` and the upload button. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). |
 | `VERCEL` | No (auto-set) | When present, SQLite writes to `/tmp/pramaan.db` instead of the project directory. You never set this yourself — Vercel sets it on deploy. |
 
-Copy `.env.example` to `.env` locally. On Vercel, add `ANTHROPIC_API_KEY`
+Copy `.env.example` to `.env` locally. On Vercel, add `GEMINI_API_KEY`
 under Project Settings → Environment Variables only if you want AI reading;
 everything else works with zero configuration.
 
@@ -182,7 +182,7 @@ Returns the full case record (case number, flags, score, verdict, etc.) and
 persists it to the database.
 
 **POST `/api/extract`** — multipart form upload with a `file` field. Accepts
-images and PDFs. Uses Claude (`claude-sonnet-4-6`) to return:
+images and PDFs. Uses Gemini (`gemini-2.0-flash`) to return:
 
 ```json
 {
@@ -207,7 +207,7 @@ or the model response can't be parsed.
   scale (a few hundred cases). If this gets deployed for many auditors at
   once, swap `db.py` for Postgres — the function signatures wouldn't need
   to change, just what's inside them.
-- **PDF page-splitting.** A multi-page PDF is currently sent to Claude as
+- **PDF page-splitting.** A multi-page PDF is currently sent to Gemini as
   one document; for now, upload single-invoice files for the most reliable
   reads.
 

@@ -360,7 +360,7 @@
             📎 Upload invoice / e-way bill (PDF or photo)
             <input type="file" id="file-upload" accept="image/*,application/pdf" multiple>
           </label>
-          <span class="upload-hint">The server reads the document with Claude and fills a row in below — you can correct anything before stamping.</span>
+          <span class="upload-hint">The server reads the document with Gemini and fills a row in below — you can correct anything before stamping.</span>
         </div>
         <div class="upload-status" id="upload-status"></div>
       </div>
@@ -392,7 +392,7 @@
 </main>
 
 <footer class="scope-note">
-  <strong>Pramaan backend build:</strong> this version runs against a real local server with its own database — every stamped case is saved permanently (in <code>pramaan.db</code>) and checked against every case ever run, in any browser, with no dependency on Claude.ai. The "Upload" button sends the file to the server, which reads it with Claude using your own API key (see README.md) — if no key is configured, manual entry still works, the upload button will just say so.
+  <strong>Pramaan backend build:</strong> this version runs against a real local server with its own database — every stamped case is saved permanently (in <code>pramaan.db</code>) and checked against every case ever run, in any browser, with no dependency on Claude.ai. The "Upload" button sends the file to the server, which reads it with Gemini using your own API key (see README.md) — if no key is configured, manual entry still works, the upload button will just say so.
 </footer>
 
 <script>
@@ -644,7 +644,7 @@ async function checkAiStatus(){
       banner.textContent = 'AI document reading is configured — the upload button will read invoices automatically.';
     } else {
       banner.className = 'ai-status-banner';
-      banner.textContent = 'No ANTHROPIC_API_KEY is set on the server yet, so the upload button can\'t read documents automatically — manual entry below still works fine. See README.md to enable it.';
+      banner.textContent = 'No GEMINI_API_KEY is set on the server yet, so the upload button can\'t read documents automatically — manual entry below still works fine. See README.md to enable it.';
     }
     banner.classList.remove('hidden');
   } catch (err){

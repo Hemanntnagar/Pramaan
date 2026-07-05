@@ -1,5 +1,5 @@
 """
-ai_extract.py — server-side call to Claude for reading an invoice / e-way bill /
+ai_extract.py — server-side call to Gemini for reading an invoice / e-way bill /
 weighbridge slip and pulling out structured fields.
 
 Doing this on the backend (instead of straight from the browser, as the
@@ -14,8 +14,9 @@ import re
 
 import httpx
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-4-6"
+GEMINI_API_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+)
 
 SYSTEM_PROMPT = (
     "You extract structured data from a single recycling/waste-management invoice, "
@@ -34,44 +35,51 @@ class ExtractionError(Exception):
 
 
 async def extract_fields(file_bytes: bytes, content_type: str) -> dict:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ExtractionError(
-            "No ANTHROPIC_API_KEY is set on the server. Add one to your .env file to enable "
+            "No GEMINI_API_KEY is set on the server. Add one to your .env file to enable "
             "AI document reading (see README.md) — manual entry still works without it."
         )
 
     media_type = content_type or "application/octet-stream"
-    block_type = "document" if media_type == "application/pdf" else "image"
     b64 = base64.b64encode(file_bytes).decode("ascii")
 
     body = {
-        "model": MODEL,
-        "max_tokens": 1000,
-        "system": SYSTEM_PROMPT,
-        "messages": [{
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{
             "role": "user",
-            "content": [
-                {"type": block_type, "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                {"type": "text", "text": "Extract the fields from this document as instructed."},
+            "parts": [
+                {"inline_data": {"mime_type": media_type, "data": b64}},
+                {"text": "Extract the fields from this document as instructed."},
             ],
         }],
-    }
-
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 1000,
+        },
     }
 
     async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(ANTHROPIC_API_URL, headers=headers, json=body)
+        resp = await client.post(
+            GEMINI_API_URL,
+            params={"key": api_key},
+            headers={"content-type": "application/json"},
+            json=body,
+        )
 
     if resp.status_code != 200:
-        raise ExtractionError(f"Claude API request failed ({resp.status_code}): {resp.text[:300]}")
+        raise ExtractionError(
+            f"Gemini API request failed ({resp.status_code}): {resp.text[:300]}"
+        )
 
     data = resp.json()
-    text_block = next((b for b in data.get("content", []) if b.get("type") == "text"), None)
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise ExtractionError("No content returned by the model.")
+
+    parts = candidates[0].get("content", {}).get("parts") or []
+    text_block = next((p for p in parts if p.get("text")), None)
     if not text_block:
         raise ExtractionError("No text content returned by the model.")
 

@@ -12,11 +12,11 @@ set up anything. Here's exactly what that gets you, and what it doesn't.
 
 ## What's disabled with no env vars
 
-- The "Upload invoice" AI-reading button. Without an `ANTHROPIC_API_KEY`,
+- The "Upload invoice" AI-reading button. Without a `GEMINI_API_KEY`,
   the app shows a small banner saying so and you just type document
   details in by hand instead — it does not break or error out.
 
-If you ever want that button working, add `ANTHROPIC_API_KEY` under your
+If you ever want that button working, add `GEMINI_API_KEY` under your
 Vercel project's Settings → Environment Variables, with no code changes.
 That's the one and only env var this app ever looks for.
 

@@ -119,7 +119,7 @@ async def extract(file: UploadFile = File(...)):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "ai_configured": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+    return {"ok": True, "ai_configured": bool(os.environ.get("GEMINI_API_KEY"))}
 
 
 # Serve the frontend last so it doesn't shadow the /api/* routes above.
