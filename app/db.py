@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS flags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_invoice ON documents(invoice);
+CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(name);
+CREATE INDEX IF NOT EXISTS idx_cases_period ON cases(period);
+CREATE INDEX IF NOT EXISTS idx_cases_verdict ON cases(verdict);
 """
 
 
@@ -152,3 +155,33 @@ def clear_all(conn) -> None:
     conn.execute("DELETE FROM flags")
     conn.execute("DELETE FROM documents")
     conn.execute("DELETE FROM cases")
+
+
+def search_cases(conn, query: str = "", period: str = "", verdict: str = "") -> list[dict]:
+    """Search cases with optional filters."""
+    sql = "SELECT * FROM cases WHERE 1=1"
+    params = []
+    
+    if query:
+        sql += " AND (name LIKE ? OR case_no LIKE ?)"
+        like_query = f"%{query}%"
+        params.extend([like_query, like_query])
+    
+    if period:
+        sql += " AND period = ?"
+        params.append(period)
+    
+    if verdict:
+        sql += " AND verdict = ?"
+        params.append(verdict)
+    
+    sql += " ORDER BY id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_case_pair(conn, case_no1: str, case_no2: str) -> tuple[dict | None, dict | None]:
+    """Get two cases for comparison."""
+    case1 = get_case(conn, case_no1)
+    case2 = get_case(conn, case_no2)
+    return (case1, case2)

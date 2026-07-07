@@ -85,6 +85,26 @@ def get_case(case_no: str):
     return case
 
 
+@app.get("/api/cases/search")
+def search_cases(q: str = "", period: str = "", verdict: str = ""):
+    """Search cases with optional filters by name/case_no, period, and verdict."""
+    with db.get_conn() as conn:
+        results = db.search_cases(conn, query=q, period=period, verdict=verdict)
+    return results
+
+
+@app.get("/api/cases/compare/{case_no1}/{case_no2}")
+def compare_cases(case_no1: str, case_no2: str):
+    """Get two cases for side-by-side comparison."""
+    with db.get_conn() as conn:
+        case1, case2 = db.get_case_pair(conn, case_no1, case_no2)
+    
+    if not case1 or not case2:
+        raise HTTPException(status_code=404, detail="One or both cases not found")
+    
+    return {"case1": case1, "case2": case2}
+
+
 @app.get("/api/cases/{case_no}/pdf")
 def get_case_pdf(case_no: str):
     with db.get_conn() as conn:
