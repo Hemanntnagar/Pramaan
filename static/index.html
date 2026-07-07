@@ -294,6 +294,31 @@
     border:1px dashed var(--amber); background:#FBF1E2; color:var(--amber-deep);
   }
   .ai-status-banner.ok{border-color:var(--verified); background:#E1EFE6; color:var(--verified-deep);}
+
+  /* ---------- search & compare ---------- */
+  #view-search h2, #view-compare h2{font-size:24px; margin-bottom:18px;}
+  .search-results-table{width:100%; border-collapse:collapse; background:#fff; box-shadow:var(--shadow); border-radius:4px; overflow:hidden; margin-top:14px;}
+  .search-results-table th, .search-results-table td{
+    text-align:left; padding:11px 14px; font-size:13.5px; border-bottom:1px solid var(--paper-deep);
+  }
+  .search-results-table th{
+    font-family:"IBM Plex Mono", monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em;
+    color:var(--ink-soft); background:var(--paper-deep);
+  }
+  .search-results-table tbody tr:hover{background:var(--paper);}
+  
+  .compare-grid{display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:18px;}
+  .compare-card{background:#fff; border:1px solid var(--paper-edge); border-radius:4px; padding:20px; box-shadow:var(--shadow);}
+  .compare-card h3{font-size:18px; margin-bottom:12px;}
+  .compare-row{display:flex; justify-content:space-between; align-items:flex-start; padding:10px 0; border-bottom:1px dashed var(--buff-line); font-size:13px;}
+  .compare-row strong{color:var(--ink-soft); min-width:120px; font-weight:600;}
+  .compare-row span{flex:1; text-align:right; color:var(--ink);}
+  .compare-row.highlight{background:#FBF1E2; padding:10px; border-radius:3px; border-bottom:none;}
+  
+  @media (max-width:640px){
+    .compare-grid{grid-template-columns:1fr;}
+    .grid-2{grid-template-columns:1fr;}
+  }
 </style>
 
 </head>
@@ -310,6 +335,8 @@
   <nav class="tabs">
     <button class="tab active" data-view="new">New Audit Case</button>
     <button class="tab" data-view="register">Case Register</button>
+    <button class="tab" data-view="search">Search Cases</button>
+    <button class="tab" data-view="compare">Compare Cases</button>
   </nav>
 </header>
 
@@ -387,6 +414,51 @@
     </table>
     <p class="empty-note" id="register-empty">No cases yet. Run your first audit to see it appear here.</p>
     <button class="btn-tertiary" id="btn-clear-all" style="margin-top:14px;">Clear all saved cases</button>
+  </section>
+
+  <section id="view-search" class="view hidden">
+    <h2>Search & Filter Cases</h2>
+    <div class="file-card">
+      <div class="grid-2">
+        <label>Search by producer or case no.
+          <input id="search-query" type="text" placeholder="e.g. Shree Polymers">
+        </label>
+        <label>Filter by verdict
+          <select id="search-verdict" style="font-family:'IBM Plex Mono', monospace; font-size:14.5px; color:var(--ink); background:#fff; border:1px solid var(--paper-edge); border-radius:4px; padding:9px 10px; width:100%;">
+            <option value="">All verdicts</option>
+            <option value="Verified — no issues found">Verified</option>
+            <option value="Flagged — low">Low risk</option>
+            <option value="Flagged — medium">Medium risk</option>
+            <option value="Flagged — high">High risk</option>
+          </select>
+        </label>
+        <label>Filter by period
+          <input id="search-period" type="month">
+        </label>
+      </div>
+      <button class="btn-stamp" id="btn-search" style="margin-top:18px;">Search</button>
+    </div>
+    <div id="search-results" style="margin-top:24px;"></div>
+  </section>
+
+  <section id="view-compare" class="view hidden">
+    <h2>Compare Cases</h2>
+    <div class="file-card">
+      <div class="grid-2">
+        <label>Case 1
+          <select id="compare-case1" style="font-family:'IBM Plex Mono', monospace; font-size:14.5px; color:var(--ink); background:#fff; border:1px solid var(--paper-edge); border-radius:4px; padding:9px 10px; width:100%;">
+            <option value="">Select a case</option>
+          </select>
+        </label>
+        <label>Case 2
+          <select id="compare-case2" style="font-family:'IBM Plex Mono', monospace; font-size:14.5px; color:var(--ink); background:#fff; border:1px solid var(--paper-edge); border-radius:4px; padding:9px 10px; width:100%;">
+            <option value="">Select a case</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn-stamp" id="btn-compare" style="margin-top:18px;">Compare</button>
+    </div>
+    <div id="compare-results" style="margin-top:24px;"></div>
   </section>
 
 </main>
@@ -652,11 +724,102 @@ async function checkAiStatus(){
   }
 }
 
+function updateCaseSelects(){
+  const options = '<option value="">Select a case</option>' + cases.map(function(c){
+    return '<option value="' + c.case_no + '">' + c.case_no + ' — ' + c.name + '</option>';
+  }).join('');
+  document.getElementById('compare-case1').innerHTML = options;
+  document.getElementById('compare-case2').innerHTML = options;
+}
+
+async function performSearch(){
+  const query = document.getElementById('search-query').value;
+  const period = document.getElementById('search-period').value;
+  const verdict = document.getElementById('search-verdict').value;
+  
+  const params = new URLSearchParams();
+  if (query) params.append('q', query);
+  if (period) params.append('period', period);
+  if (verdict) params.append('verdict', verdict);
+  
+  try {
+    const resp = await fetch('/api/cases/search?' + params.toString());
+    const results = await resp.json();
+    
+    const resultsDiv = document.getElementById('search-results');
+    if (results.length === 0){
+      resultsDiv.innerHTML = '<p class="empty-note">No cases found matching your filters.</p>';
+      return;
+    }
+    
+    let html = '<table class="search-results-table"><thead><tr><th>Case no.</th><th>Producer</th><th>Period</th><th>Claimed (kg)</th><th>Verdict</th><th></th></tr></thead><tbody>';
+    results.forEach(function(c){
+      html += '<tr>' +
+        '<td>' + c.case_no + '</td>' +
+        '<td>' + c.name + '</td>' +
+        '<td>' + (c.period || '—') + '</td>' +
+        '<td>' + c.claimed + '</td>' +
+        '<td><span class="verdict-pill ' + c.verdict_class + '">' + c.verdict.replace('Flagged — ','').replace('Verified — no issues found','clean') + '</span></td>' +
+        '<td><button class="row-view-btn" onclick="reopenCase(\'' + c.case_no + '\')">View</button></td>' +
+      '</tr>';
+    });
+    html += '</tbody></table>';
+    resultsDiv.innerHTML = html;
+  } catch (err){
+    alert('Search failed: ' + err.message);
+  }
+}
+
+async function performComparison(){
+  const case1No = document.getElementById('compare-case1').value;
+  const case2No = document.getElementById('compare-case2').value;
+  
+  if (!case1No || !case2No){
+    alert('Please select both cases to compare.');
+    return;
+  }
+  
+  try {
+    const resp = await fetch('/api/cases/compare/' + encodeURIComponent(case1No) + '/' + encodeURIComponent(case2No));
+    if (!resp.ok) throw new Error('Cases not found');
+    const data = await resp.json();
+    const c1 = data.case1;
+    const c2 = data.case2;
+    
+    const resultsDiv = document.getElementById('compare-results');
+    resultsDiv.innerHTML = '<div class="compare-grid">' +
+      '<div class="compare-card">' +
+        '<h3>' + c1.name + '</h3>' +
+        '<div class="compare-row"><strong>Case No.</strong><span>' + c1.case_no + '</span></div>' +
+        '<div class="compare-row"><strong>Period</strong><span>' + (c1.period || '—') + '</span></div>' +
+        '<div class="compare-row"><strong>Claimed (kg)</strong><span>' + c1.claimed + '</span></div>' +
+        '<div class="compare-row"><strong>Documented (kg)</strong><span>' + Number(c1.doc_sum).toFixed(0) + '</span></div>' +
+        '<div class="compare-row"><strong>Risk Score</strong><span>' + c1.score + '</span></div>' +
+        '<div class="compare-row ' + (c1.verdict_class !== c2.verdict_class ? 'highlight' : '') + '"><strong>Verdict</strong><span class="verdict-pill ' + c1.verdict_class + '" style="display:inline-block;">' + c1.verdict.replace('Flagged — ','').replace('Verified — no issues found','clean') + '</span></div>' +
+      '</div>' +
+      '<div class="compare-card">' +
+        '<h3>' + c2.name + '</h3>' +
+        '<div class="compare-row"><strong>Case No.</strong><span>' + c2.case_no + '</span></div>' +
+        '<div class="compare-row"><strong>Period</strong><span>' + (c2.period || '—') + '</span></div>' +
+        '<div class="compare-row"><strong>Claimed (kg)</strong><span>' + c2.claimed + '</span></div>' +
+        '<div class="compare-row"><strong>Documented (kg)</strong><span>' + Number(c2.doc_sum).toFixed(0) + '</span></div>' +
+        '<div class="compare-row"><strong>Risk Score</strong><span>' + c2.score + '</span></div>' +
+        '<div class="compare-row ' + (c1.verdict_class !== c2.verdict_class ? 'highlight' : '') + '"><strong>Verdict</strong><span class="verdict-pill ' + c2.verdict_class + '" style="display:inline-block;">' + c2.verdict.replace('Flagged — ','').replace('Verified — no issues found','clean') + '</span></div>' +
+      '</div>' +
+    '</div>';
+  } catch (err){
+    alert('Comparison failed: ' + err.message);
+  }
+}
+
 function switchView(view){
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === view); });
   document.getElementById('view-new').classList.toggle('hidden', view !== 'new');
   document.getElementById('view-register').classList.toggle('hidden', view !== 'register');
-  if (view === 'register') loadCasesFromServer();
+  document.getElementById('view-search').classList.toggle('hidden', view !== 'search');
+  document.getElementById('view-compare').classList.toggle('hidden', view !== 'compare');
+  if (view === 'register' || view === 'search' || view === 'compare') loadCasesFromServer();
+  if (view === 'compare') updateCaseSelects();
 }
 
 document.addEventListener('DOMContentLoaded', async function(){
@@ -669,6 +832,8 @@ document.addEventListener('DOMContentLoaded', async function(){
     e.target.value = '';
   });
   document.getElementById('btn-clear-all').addEventListener('click', clearAllCases);
+  document.getElementById('btn-search').addEventListener('click', performSearch);
+  document.getElementById('btn-compare').addEventListener('click', performComparison);
   document.querySelectorAll('.tab').forEach(function(t){
     t.addEventListener('click', function(){ switchView(t.dataset.view); });
   });
