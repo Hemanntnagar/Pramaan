@@ -434,7 +434,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7.71 3.5L1.15 15a2 2 0 001.85 3h5.5l6.56-11.5A2 2 0 0012.21 3.5H7.71z" fill="#0066DA"/><path d="M14.29 3.5h-4.5L3.23 15a2 2 0 001.85 3h5.5l6.56-11.5A2 2 0 0014.29 3.5z" fill="#00AC47"/><path d="M12 10.5L5.44 22h11.12L23.12 10.5H12z" fill="#FFBA00"/></svg>
             Google Drive
           </button>
-          <span class="upload-hint">Upload locally or import from Drive — the server reads documents with Gemini and fills rows below.</span>
+          <button type="button" class="btn-drive" id="btn-sample-library" title="Import bundled sample invoices">
+            Sample invoices
+          </button>
+          <span class="upload-hint">Upload locally, import from Drive, or load test files from <code>sample_invoices/</code> — the server reads documents with Gemini and fills rows below.</span>
         </div>
         <div class="upload-status" id="upload-status"></div>
       </div>
@@ -527,6 +530,25 @@
       <div style="display:flex; gap:8px;">
         <button type="button" class="btn-tertiary" id="drive-cancel">Cancel</button>
         <button type="button" class="btn-secondary" id="drive-import" disabled>Import selected</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="drive-modal-backdrop hidden" id="sample-modal" role="dialog" aria-labelledby="sample-modal-title" aria-modal="true">
+  <div class="drive-modal">
+    <div class="drive-modal__head">
+      <h3 id="sample-modal-title">Pick sample invoices</h3>
+      <button type="button" class="drive-modal__close" id="sample-modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="drive-modal__list" id="sample-file-list">
+      <p class="drive-empty">Loading sample invoices…</p>
+    </div>
+    <div class="drive-modal__foot">
+      <span class="upload-hint">Drop PDF or image files into <code>sample_invoices/</code> to see them here.</span>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn-tertiary" id="sample-cancel">Cancel</button>
+        <button type="button" class="btn-secondary" id="sample-import" disabled>Import selected</button>
       </div>
     </div>
   </div>
@@ -905,6 +927,93 @@ async function handleDriveClick(){
   openDriveModal();
 }
 
+function openSampleModal(){
+  document.getElementById('sample-modal').classList.remove('hidden');
+  loadSampleFiles();
+}
+
+function closeSampleModal(){
+  document.getElementById('sample-modal').classList.add('hidden');
+}
+
+function getSelectedSampleNames(){
+  return Array.from(document.querySelectorAll('#sample-file-list input[type="checkbox"]:checked')).map(function(cb){
+    return cb.value;
+  });
+}
+
+function updateSampleImportButton(){
+  document.getElementById('sample-import').disabled = getSelectedSampleNames().length === 0;
+}
+
+function renderSampleFiles(payload){
+  const list = document.getElementById('sample-file-list');
+  const files = payload.files || [];
+  if (!files.length){
+    list.innerHTML = '<p class="drive-empty">No sample invoices found yet. Add PDF or image files to <code>' + escapeHtml(payload.folder || 'sample_invoices') + '/</code>.</p>';
+    updateSampleImportButton();
+    return;
+  }
+  list.innerHTML = files.map(function(f){
+    const ext = f.name.includes('.') ? f.name.split('.').pop().toUpperCase() : 'FILE';
+    const sizeKb = f.size ? Math.max(1, Math.round(f.size / 1024)) + ' KB' : '';
+    return '<label class="drive-file">' +
+      '<input type="checkbox" value="' + escapeHtml(f.name) + '">' +
+      '<span class="drive-file__name">' + escapeHtml(f.name) + '</span>' +
+      '<span class="drive-file__meta">' + ext + (sizeKb ? ' · ' + sizeKb : '') + '</span>' +
+    '</label>';
+  }).join('');
+  list.querySelectorAll('input[type="checkbox"]').forEach(function(cb){
+    cb.addEventListener('change', updateSampleImportButton);
+  });
+  updateSampleImportButton();
+}
+
+async function loadSampleFiles(){
+  const list = document.getElementById('sample-file-list');
+  list.innerHTML = '<p class="drive-empty">Loading sample invoices…</p>';
+  try {
+    const resp = await fetch('/api/sample-invoices');
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Could not load sample invoices');
+    renderSampleFiles(data);
+  } catch (err){
+    list.innerHTML = '<p class="drive-empty">Could not load sample invoices: ' + escapeHtml(err.message) + '</p>';
+    updateSampleImportButton();
+  }
+}
+
+async function importSampleInvoices(){
+  const names = getSelectedSampleNames();
+  if (!names.length) return;
+  closeSampleModal();
+  const btn = document.getElementById('sample-import');
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+  try {
+    const resp = await fetch('/api/sample-invoices/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: names })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Import failed');
+    for (const item of data.results){
+      const statusEl = addUploadStatus(item.name);
+      if (item.ok){
+        processExtractedFields(statusEl, item.name, item.fields);
+      } else {
+        setUploadStatus(statusEl, 'error', item.name + ' — ' + (item.error || 'could not read'));
+      }
+    }
+  } catch (err){
+    alert('Sample invoice import failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Import selected';
+  }
+}
+
 async function importFromDrive(){
   const ids = getSelectedDriveIds();
   if (!ids.length) return;
@@ -1057,16 +1166,23 @@ document.addEventListener('DOMContentLoaded', async function(){
     e.target.value = '';
   });
   document.getElementById('btn-drive').addEventListener('click', handleDriveClick);
+  document.getElementById('btn-sample-library').addEventListener('click', openSampleModal);
   document.getElementById('drive-modal-close').addEventListener('click', closeDriveModal);
   document.getElementById('drive-cancel').addEventListener('click', closeDriveModal);
   document.getElementById('drive-import').addEventListener('click', importFromDrive);
   document.getElementById('drive-disconnect').addEventListener('click', disconnectDrive);
+  document.getElementById('sample-modal-close').addEventListener('click', closeSampleModal);
+  document.getElementById('sample-cancel').addEventListener('click', closeSampleModal);
+  document.getElementById('sample-import').addEventListener('click', importSampleInvoices);
   document.getElementById('drive-search').addEventListener('input', function(e){
     clearTimeout(driveSearchTimer);
     driveSearchTimer = setTimeout(function(){ loadDriveFiles(e.target.value.trim()); }, 300);
   });
   document.getElementById('drive-modal').addEventListener('click', function(e){
     if (e.target.id === 'drive-modal') closeDriveModal();
+  });
+  document.getElementById('sample-modal').addEventListener('click', function(e){
+    if (e.target.id === 'sample-modal') closeSampleModal();
   });
   document.getElementById('btn-clear-all').addEventListener('click', clearAllCases);
   document.getElementById('btn-search').addEventListener('click', performSearch);

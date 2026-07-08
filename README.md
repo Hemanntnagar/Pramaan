@@ -76,7 +76,9 @@ The browser UI has two tabs:
 - **New Audit Case** — enter producer details, add supporting documents
   manually or via upload, set a typical market-rate range (default ₹18–42/kg),
   and stamp the case. A "Load a sample case" link pre-fills a deliberately
-  flawed submission for demo purposes.
+  flawed submission for demo purposes, and the "Sample invoices" button loads
+  PDF/image files from `sample_invoices/` through the same AI extraction path
+  used for real uploads.
 - **Case Register** — lists every saved case, with links to reopen the report
   or download its PDF. "Clear all saved cases" wipes the database.
 
@@ -97,11 +99,15 @@ pramaan-backend/
     fonts/          DejaVu Sans (bundled so ₹ renders correctly in PDFs)
   static/
     index.html      the whole frontend — one file, no build step
+  sample_invoices/  optional local PDF/image files for extractor testing
   requirements.txt
   .env.example
   DEPLOY_VERCEL.md  how to deploy to Vercel (no env vars required)
   .vercelignore
 ```
+
+To test with your own sample invoice files, drop PDFs or images into
+`sample_invoices/` and use the **Sample invoices** button in the UI.
 
 ## The 7 checks (and how scoring works)
 

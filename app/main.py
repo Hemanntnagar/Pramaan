@@ -44,6 +44,7 @@ app.add_middleware(
 )
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+SAMPLE_INVOICES_DIR = Path(__file__).resolve().parent.parent / "sample_invoices"
 
 
 class DocIn(BaseModel):
@@ -65,6 +66,45 @@ class VerifyRequest(BaseModel):
 
 class DriveExtractRequest(BaseModel):
     file_ids: list[str]
+
+
+class SampleExtractRequest(BaseModel):
+    names: list[str]
+
+
+def _sample_invoice_paths() -> list[Path]:
+    if not SAMPLE_INVOICES_DIR.exists():
+        return []
+    return sorted(
+        [
+            path
+            for path in SAMPLE_INVOICES_DIR.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
+        ],
+        key=lambda path: path.name.lower(),
+    )
+
+
+def _sample_invoice_meta(path: Path) -> dict[str, str | int]:
+    rel = path.relative_to(SAMPLE_INVOICES_DIR).as_posix()
+    return {
+        "name": rel,
+        "size": path.stat().st_size,
+    }
+
+
+def _sample_invoice_path(name: str) -> Path:
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="Sample invoice name is required.")
+    path = (SAMPLE_INVOICES_DIR / name).resolve()
+    base = SAMPLE_INVOICES_DIR.resolve()
+    if base not in path.parents and path != base:
+        raise HTTPException(status_code=400, detail="Invalid sample invoice path.")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Sample invoice not found: {name}")
+    if path.suffix.lower() not in {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        raise HTTPException(status_code=400, detail="Unsupported sample invoice file type.")
+    return path
 
 
 @app.post("/api/verify")
@@ -140,6 +180,34 @@ async def extract(file: UploadFile = File(...)):
     except ExtractionError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return fields
+
+
+@app.get("/api/sample-invoices")
+def list_sample_invoices():
+    return {
+        "files": [_sample_invoice_meta(path) for path in _sample_invoice_paths()],
+        "folder": SAMPLE_INVOICES_DIR.name,
+    }
+
+
+@app.post("/api/sample-invoices/extract")
+async def extract_sample_invoices(payload: SampleExtractRequest):
+    if not payload.names:
+        raise HTTPException(status_code=400, detail="No sample invoices selected.")
+    results = []
+    for name in payload.names:
+        path = _sample_invoice_path(name)
+        mime_type = "application/pdf" if path.suffix.lower() == ".pdf" else f"image/{path.suffix.lower().lstrip('.')}"
+        if mime_type == "image.jpg":
+            mime_type = "image/jpeg"
+        try:
+            fields = await extract_fields(path.read_bytes(), mime_type)
+            results.append({"name": name, "ok": True, "fields": fields})
+        except ExtractionError as e:
+            results.append({"name": name, "ok": False, "error": str(e)})
+        except Exception as e:
+            results.append({"name": name, "ok": False, "error": str(e)})
+    return {"results": results}
 
 
 @app.get("/api/health")
