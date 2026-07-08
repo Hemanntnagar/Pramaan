@@ -527,25 +527,39 @@ async function extractDocumentFields(file){
   return data;
 }
 
+function addExtractedDocuments(fields){
+  const docs = fields.documents && fields.documents.length
+    ? fields.documents
+    : [fields];
+  docs.forEach(function(doc){
+    addDocRow({
+      invoice: doc.invoice_no || '',
+      date: doc.date || '',
+      qty: doc.quantity_kg != null ? doc.quantity_kg : '',
+      rate: doc.rate_per_kg != null ? doc.rate_per_kg : '',
+      ai: true
+    });
+  });
+  const facility = docs.find(function(d){ return d.facility_name; });
+  if (facility && facility.facility_name){
+    const nameInput = document.getElementById('f-name');
+    if (!nameInput.value.trim()) nameInput.value = facility.facility_name;
+  }
+  return docs;
+}
+
 async function handleFiles(fileList){
   const files = Array.from(fileList);
   for (const file of files){
     const statusEl = addUploadStatus(file.name);
     try {
       const fields = await extractDocumentFields(file);
-      addDocRow({
-        invoice: fields.invoice_no || '',
-        date: fields.date || '',
-        qty: fields.quantity_kg != null ? fields.quantity_kg : '',
-        rate: fields.rate_per_kg != null ? fields.rate_per_kg : '',
-        ai: true
+      const docs = addExtractedDocuments(fields);
+      const missing = docs.flatMap(function(doc){
+        return ['invoice_no','date','quantity_kg','rate_per_kg'].filter(function(k){ return doc[k] == null; });
       });
-      if (fields.facility_name){
-        const nameInput = document.getElementById('f-name');
-        if (!nameInput.value.trim()) nameInput.value = fields.facility_name;
-      }
-      const missing = ['invoice_no','date','quantity_kg','rate_per_kg'].filter(function(k){ return fields[k] == null; });
-      setUploadStatus(statusEl, 'done', file.name + ' — row added.' + (missing.length ? ' Could not read: ' + missing.join(', ') + ' — please fill in by hand.' : ' Please double-check the values before stamping.'));
+      const rowLabel = docs.length > 1 ? docs.length + ' rows added' : 'row added';
+      setUploadStatus(statusEl, 'done', file.name + ' — ' + rowLabel + '.' + (missing.length ? ' Could not read: ' + [...new Set(missing)].join(', ') + ' — please fill in by hand.' : ' Please double-check the values before stamping.'));
     } catch (err){
       setUploadStatus(statusEl, 'error', file.name + ' — could not read this document (' + err.message + '). Please add this row by hand.');
     }
