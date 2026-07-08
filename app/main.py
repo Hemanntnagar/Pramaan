@@ -12,9 +12,9 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -23,6 +23,7 @@ from app import db
 from app.verify import run_verification
 from app.ai_extract import extract_fields, ExtractionError
 from app.pdf_report import build_pdf
+from app import drive as drive_mod
 
 load_dotenv()  # no-op if there's no .env file (e.g. on Vercel) — that's fine
 
@@ -60,6 +61,10 @@ class VerifyRequest(BaseModel):
     rate_min: float = 0
     rate_max: float = 10**9
     docs: list[DocIn] = []
+
+
+class DriveExtractRequest(BaseModel):
+    file_ids: list[str]
 
 
 @app.post("/api/verify")
@@ -138,8 +143,71 @@ async def extract(file: UploadFile = File(...)):
 
 
 @app.get("/api/health")
-def health():
-    return {"ok": True, "ai_configured": bool(os.environ.get("GEMINI_API_KEY"))}
+def health(request: Request):
+    return {
+        "ok": True,
+        "ai_configured": bool(os.environ.get("GEMINI_API_KEY")),
+        "drive_configured": drive_mod.is_configured(),
+        "drive_connected": drive_mod.is_connected(request),
+    }
+
+
+@app.get("/api/drive/auth")
+def drive_auth(request: Request):
+    response = Response(status_code=302)
+    auth_url = drive_mod.start_auth(request, response)
+    response.headers["Location"] = auth_url
+    return response
+
+
+@app.get("/api/drive/callback")
+def drive_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if error:
+        return RedirectResponse(url="/?drive_error=" + error, status_code=302)
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code.")
+    response = RedirectResponse(url="/?drive=connected", status_code=302)
+    drive_mod.finish_auth(request, response, code, state)
+    return response
+
+
+@app.get("/api/drive/status")
+def drive_status(request: Request):
+    return {
+        "configured": drive_mod.is_configured(),
+        "connected": drive_mod.is_connected(request),
+    }
+
+
+@app.get("/api/drive/files")
+def drive_files(request: Request, q: str = ""):
+    return drive_mod.list_files(request, q=q)
+
+
+@app.post("/api/drive/disconnect")
+def drive_disconnect(request: Request):
+    drive_mod.disconnect(request)
+    return {"ok": True}
+
+
+@app.post("/api/drive/extract")
+async def drive_extract(request: Request, payload: DriveExtractRequest):
+    if not payload.file_ids:
+        raise HTTPException(status_code=400, detail="No files selected.")
+    results = []
+    for file_id in payload.file_ids:
+        name = file_id
+        try:
+            file_bytes, mime_type, name = drive_mod.download_file(request, file_id)
+            fields = await extract_fields(file_bytes, mime_type)
+            results.append({"file_id": file_id, "name": name, "ok": True, "fields": fields})
+        except ExtractionError as e:
+            results.append({"file_id": file_id, "name": name, "ok": False, "error": str(e)})
+        except HTTPException:
+            raise
+        except Exception as e:
+            results.append({"file_id": file_id, "name": name, "ok": False, "error": str(e)})
+    return {"results": results}
 
 
 # Serve the frontend last so it doesn't shadow the /api/* routes above.

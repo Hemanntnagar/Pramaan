@@ -295,6 +295,49 @@
   }
   .ai-status-banner.ok{border-color:var(--verified); background:#E1EFE6; color:var(--verified-deep);}
 
+  /* ---------- Google Drive picker ---------- */
+  .btn-drive{
+    font-family:"IBM Plex Sans"; font-weight:600; font-size:13px;
+    background:#fff; color:var(--ink); border:1.5px solid var(--paper-edge); border-radius:5px;
+    padding:9px 14px; cursor:pointer; display:inline-flex; align-items:center; gap:7px;
+  }
+  .btn-drive:hover{background:var(--paper-deep); border-color:var(--buff-line);}
+  .btn-drive:disabled{opacity:0.5; cursor:not-allowed;}
+  .drive-modal-backdrop{
+    position:fixed; inset:0; background:rgba(28,43,74,0.45); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .drive-modal-backdrop.hidden{display:none;}
+  .drive-modal{
+    background:var(--paper); border:1px solid var(--paper-edge); border-radius:6px;
+    box-shadow:0 16px 48px rgba(28,43,74,0.18); width:min(560px, 100%); max-height:80vh;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  .drive-modal__head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:18px 20px; border-bottom:1px dashed var(--buff-line);
+  }
+  .drive-modal__head h3{font-size:18px;}
+  .drive-modal__close{background:none; border:none; font-size:22px; color:var(--ink-soft); cursor:pointer; line-height:1;}
+  .drive-modal__search{padding:12px 20px; border-bottom:1px solid var(--paper-deep);}
+  .drive-modal__search input{width:100%;}
+  .drive-modal__list{
+    overflow-y:auto; padding:8px 12px; flex:1; min-height:120px; max-height:340px;
+  }
+  .drive-file{
+    display:flex; align-items:center; gap:10px; padding:10px 8px; border-radius:4px;
+    font-size:13.5px; cursor:pointer;
+  }
+  .drive-file:hover{background:#fff;}
+  .drive-file input[type="checkbox"]{flex:none; width:16px; height:16px; cursor:pointer;}
+  .drive-file__name{flex:1; font-family:"IBM Plex Mono", monospace; font-size:12.5px;}
+  .drive-file__meta{font-size:11px; color:#9aa3b8; font-family:"IBM Plex Mono", monospace;}
+  .drive-modal__foot{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:14px 20px; border-top:1px dashed var(--buff-line); flex-wrap:wrap;
+  }
+  .drive-empty{font-size:13px; color:var(--ink-soft); padding:20px 8px; text-align:center;}
+
   /* ---------- search & compare ---------- */
   #view-search h2, #view-compare h2{font-size:24px; margin-bottom:18px;}
   .search-results-table{width:100%; border-collapse:collapse; background:#fff; box-shadow:var(--shadow); border-radius:4px; overflow:hidden; margin-top:14px;}
@@ -387,7 +430,11 @@
             📎 Upload invoice / e-way bill (PDF or photo)
             <input type="file" id="file-upload" accept="image/*,application/pdf" multiple>
           </label>
-          <span class="upload-hint">The server reads the document with Gemini and fills a row in below — you can correct anything before stamping.</span>
+          <button type="button" class="btn-drive" id="btn-drive" title="Import from Google Drive">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7.71 3.5L1.15 15a2 2 0 001.85 3h5.5l6.56-11.5A2 2 0 0012.21 3.5H7.71z" fill="#0066DA"/><path d="M14.29 3.5h-4.5L3.23 15a2 2 0 001.85 3h5.5l6.56-11.5A2 2 0 0014.29 3.5z" fill="#00AC47"/><path d="M12 10.5L5.44 22h11.12L23.12 10.5H12z" fill="#FFBA00"/></svg>
+            Google Drive
+          </button>
+          <span class="upload-hint">Upload locally or import from Drive — the server reads documents with Gemini and fills rows below.</span>
         </div>
         <div class="upload-status" id="upload-status"></div>
       </div>
@@ -463,12 +510,37 @@
 
 </main>
 
+<div class="drive-modal-backdrop hidden" id="drive-modal" role="dialog" aria-labelledby="drive-modal-title" aria-modal="true">
+  <div class="drive-modal">
+    <div class="drive-modal__head">
+      <h3 id="drive-modal-title">Pick invoices from Google Drive</h3>
+      <button type="button" class="drive-modal__close" id="drive-modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="drive-modal__search">
+      <input type="search" id="drive-search" placeholder="Search file names…">
+    </div>
+    <div class="drive-modal__list" id="drive-file-list">
+      <p class="drive-empty">Loading files…</p>
+    </div>
+    <div class="drive-modal__foot">
+      <button type="button" class="btn-tertiary" id="drive-disconnect">Disconnect account</button>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn-tertiary" id="drive-cancel">Cancel</button>
+        <button type="button" class="btn-secondary" id="drive-import" disabled>Import selected</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <footer class="scope-note">
   <strong>Pramaan backend build:</strong> this version runs against a real local server with its own database — every stamped case is saved permanently (in <code>pramaan.db</code>) and checked against every case ever run, in any browser, with no dependency on Claude.ai. The "Upload" button sends the file to the server, which reads it with Gemini using your own API key (see README.md) — if no key is configured, manual entry still works, the upload button will just say so.
 </footer>
 
 <script>
 let cases = [];
+let driveConfigured = false;
+let driveConnected = false;
+let driveSearchTimer = null;
 
 function updateCaseNoPreview(){
   document.getElementById('case-no-preview').textContent = '2026-' + String(cases.length + 1).padStart(3,'0');
@@ -554,16 +626,20 @@ async function handleFiles(fileList){
     const statusEl = addUploadStatus(file.name);
     try {
       const fields = await extractDocumentFields(file);
-      const docs = addExtractedDocuments(fields);
-      const missing = docs.flatMap(function(doc){
-        return ['invoice_no','date','quantity_kg','rate_per_kg'].filter(function(k){ return doc[k] == null; });
-      });
-      const rowLabel = docs.length > 1 ? docs.length + ' rows added' : 'row added';
-      setUploadStatus(statusEl, 'done', file.name + ' — ' + rowLabel + '.' + (missing.length ? ' Could not read: ' + [...new Set(missing)].join(', ') + ' — please fill in by hand.' : ' Please double-check the values before stamping.'));
+      processExtractedFields(statusEl, file.name, fields);
     } catch (err){
       setUploadStatus(statusEl, 'error', file.name + ' — could not read this document (' + err.message + '). Please add this row by hand.');
     }
   }
+}
+
+function processExtractedFields(statusEl, label, fields){
+  const docs = addExtractedDocuments(fields);
+  const missing = docs.flatMap(function(doc){
+    return ['invoice_no','date','quantity_kg','rate_per_kg'].filter(function(k){ return doc[k] == null; });
+  });
+  const rowLabel = docs.length > 1 ? docs.length + ' rows added' : 'row added';
+  setUploadStatus(statusEl, 'done', label + ' — ' + rowLabel + '.' + (missing.length ? ' Could not read: ' + [...new Set(missing)].join(', ') + ' — please fill in by hand.' : ' Please double-check the values before stamping.'));
 }
 
 function clearForm(){
@@ -725,16 +801,151 @@ async function checkAiStatus(){
   try {
     const resp = await fetch('/api/health');
     const data = await resp.json();
+    driveConfigured = !!data.drive_configured;
+    driveConnected = !!data.drive_connected;
+    updateDriveButton();
+
+    const parts = [];
     if (data.ai_configured){
-      banner.className = 'ai-status-banner ok';
-      banner.textContent = 'AI document reading is configured — the upload button will read invoices automatically.';
+      parts.push('AI document reading is configured — upload or Google Drive import will read invoices automatically.');
     } else {
-      banner.className = 'ai-status-banner';
-      banner.textContent = 'No GEMINI_API_KEY is set on the server yet, so the upload button can\'t read documents automatically — manual entry below still works fine. See README.md to enable it.';
+      parts.push('No GEMINI_API_KEY is set on the server yet, so automatic document reading is disabled — manual entry still works. See README.md to enable it.');
     }
+    if (driveConfigured && driveConnected){
+      parts.push('Google Drive is connected.');
+    } else if (driveConfigured){
+      parts.push('Google Drive is available — click the Drive button to connect your account.');
+    }
+
+    banner.className = 'ai-status-banner' + (data.ai_configured ? ' ok' : '');
+    banner.textContent = parts.join(' ');
     banner.classList.remove('hidden');
   } catch (err){
     banner.classList.add('hidden');
+  }
+}
+
+function updateDriveButton(){
+  const btn = document.getElementById('btn-drive');
+  if (!driveConfigured){
+    btn.disabled = true;
+    btn.title = 'Google Drive is not configured on this server (see README.md)';
+    return;
+  }
+  btn.disabled = false;
+  btn.title = driveConnected ? 'Pick invoices from Google Drive' : 'Connect Google Drive';
+}
+
+function openDriveModal(){
+  document.getElementById('drive-modal').classList.remove('hidden');
+  loadDriveFiles('');
+}
+
+function closeDriveModal(){
+  document.getElementById('drive-modal').classList.add('hidden');
+}
+
+function getSelectedDriveIds(){
+  return Array.from(document.querySelectorAll('#drive-file-list input[type="checkbox"]:checked')).map(function(cb){
+    return cb.value;
+  });
+}
+
+function updateDriveImportButton(){
+  document.getElementById('drive-import').disabled = getSelectedDriveIds().length === 0;
+}
+
+function renderDriveFiles(files){
+  const list = document.getElementById('drive-file-list');
+  if (!files.length){
+    list.innerHTML = '<p class="drive-empty">No PDF or image files found in your Drive.</p>';
+    updateDriveImportButton();
+    return;
+  }
+  list.innerHTML = files.map(function(f){
+    const modified = f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : '';
+    const kind = (f.mimeType || '').includes('pdf') ? 'PDF' : 'Image';
+    return '<label class="drive-file">' +
+      '<input type="checkbox" value="' + f.id + '">' +
+      '<span class="drive-file__name">' + escapeHtml(f.name) + '</span>' +
+      '<span class="drive-file__meta">' + kind + (modified ? ' · ' + modified : '') + '</span>' +
+    '</label>';
+  }).join('');
+  list.querySelectorAll('input[type="checkbox"]').forEach(function(cb){
+    cb.addEventListener('change', updateDriveImportButton);
+  });
+  updateDriveImportButton();
+}
+
+function escapeHtml(text){
+  return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadDriveFiles(query){
+  const list = document.getElementById('drive-file-list');
+  list.innerHTML = '<p class="drive-empty">Loading files…</p>';
+  try {
+    const params = query ? ('?q=' + encodeURIComponent(query)) : '';
+    const resp = await fetch('/api/drive/files' + params);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Could not list Drive files');
+    renderDriveFiles(data);
+  } catch (err){
+    list.innerHTML = '<p class="drive-empty">Could not load files: ' + escapeHtml(err.message) + '</p>';
+    updateDriveImportButton();
+  }
+}
+
+async function handleDriveClick(){
+  if (!driveConfigured) return;
+  if (!driveConnected){
+    window.location.href = '/api/drive/auth';
+    return;
+  }
+  openDriveModal();
+}
+
+async function importFromDrive(){
+  const ids = getSelectedDriveIds();
+  if (!ids.length) return;
+  closeDriveModal();
+  const btn = document.getElementById('drive-import');
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+  try {
+    const resp = await fetch('/api/drive/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: ids })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Import failed');
+    for (const item of data.results){
+      const statusEl = addUploadStatus(item.name || item.file_id);
+      if (item.ok){
+        processExtractedFields(statusEl, item.name, item.fields);
+      } else {
+        setUploadStatus(statusEl, 'error', (item.name || item.file_id) + ' — ' + (item.error || 'could not read'));
+      }
+    }
+  } catch (err){
+    alert('Google Drive import failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Import selected';
+  }
+}
+
+async function disconnectDrive(){
+  if (!confirm('Disconnect Google Drive from this browser session?')) return;
+  try {
+    await fetch('/api/drive/disconnect', { method: 'POST' });
+    driveConnected = false;
+    updateDriveButton();
+    closeDriveModal();
+    checkAiStatus();
+  } catch (err){
+    alert('Could not disconnect: ' + err.message);
   }
 }
 
@@ -845,6 +1056,18 @@ document.addEventListener('DOMContentLoaded', async function(){
     if (e.target.files && e.target.files.length){ handleFiles(e.target.files); }
     e.target.value = '';
   });
+  document.getElementById('btn-drive').addEventListener('click', handleDriveClick);
+  document.getElementById('drive-modal-close').addEventListener('click', closeDriveModal);
+  document.getElementById('drive-cancel').addEventListener('click', closeDriveModal);
+  document.getElementById('drive-import').addEventListener('click', importFromDrive);
+  document.getElementById('drive-disconnect').addEventListener('click', disconnectDrive);
+  document.getElementById('drive-search').addEventListener('input', function(e){
+    clearTimeout(driveSearchTimer);
+    driveSearchTimer = setTimeout(function(){ loadDriveFiles(e.target.value.trim()); }, 300);
+  });
+  document.getElementById('drive-modal').addEventListener('click', function(e){
+    if (e.target.id === 'drive-modal') closeDriveModal();
+  });
   document.getElementById('btn-clear-all').addEventListener('click', clearAllCases);
   document.getElementById('btn-search').addEventListener('click', performSearch);
   document.getElementById('btn-compare').addEventListener('click', performComparison);
@@ -852,6 +1075,16 @@ document.addEventListener('DOMContentLoaded', async function(){
     t.addEventListener('click', function(){ switchView(t.dataset.view); });
   });
   checkAiStatus();
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('drive') === 'connected'){
+    driveConnected = true;
+    updateDriveButton();
+    history.replaceState({}, '', window.location.pathname);
+    openDriveModal();
+  } else if (params.get('drive_error')){
+    alert('Google Drive connection failed: ' + params.get('drive_error'));
+    history.replaceState({}, '', window.location.pathname);
+  }
   await loadCasesFromServer();
 });
 </script>
